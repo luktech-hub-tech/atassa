@@ -66,7 +66,7 @@ gmd(
             const zip = new AdmZip(zipPath);
             zip.extractAllTo(extractPath, true);
 
-            const sourcePath = path.join(extractPath, "atassa-md-main"); // Replace this  with your bot name and branch if you're cloning
+            const sourcePath = path.join(extractPath, "atassa-main"); // Replace this  with your bot name and branch if you're cloning
             const destinationPath = path.join(__dirname, "..");
 
             const excludeList = [
