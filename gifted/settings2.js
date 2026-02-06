@@ -43,7 +43,7 @@ function isSettingEnabled(val) {
 gmd(
   {
     pattern: "setautolikestatus",
-    aliases: ["autolikestatus", "autolike", "likestatus"],
+    aliases: ["autolikestatus", "autostatuslike", "statuslike", "autolike", "likestatus"],
     react: "⚙️",
     category: "owner",
     description: "Set auto like status (on/off)",
