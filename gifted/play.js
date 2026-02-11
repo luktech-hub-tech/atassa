@@ -8,45 +8,6 @@ const {
 } = require("gifted-baileys");
 const { sendButtons } = require("gifted-btns");
 
-gmd(
-  {
-    pattern: "sendimage",
-    aliases: ["sendimg", "dlimg", "dlimage"],
-    category: "downloader",
-    react: "📷",
-    description: "Download Audio from url",
-  },
-  async (from, Gifted, conText) => {
-    const { q, mek, reply, react, sender, botFooter, gmdBuffer } = conText;
-
-    if (!q) {
-      await react("❌");
-      return reply("Please provide image url");
-    }
-
-    try {
-      const buffer = await gmdBuffer(q);
-      if (buffer instanceof Error) {
-        await react("❌");
-        return reply("Failed to download the image file.");
-      }
-      await Gifted.sendMessage(
-        from,
-        {
-          image: imageBuffer,
-          mimetype: "image/jpg",
-          caption: `> *${botFooter}*`,
-        },
-        { quoted: mek },
-      );
-      await react("✅");
-    } catch (error) {
-      console.error("Error during download process:", error);
-      await react("❌");
-      return reply("Oops! Something went wrong. Please try again.");
-    }
-  },
-);
 
 gmd(
   {
@@ -133,13 +94,163 @@ gmd(
   },
 );
 
+
+async function queryAPI(query, endpoints, conText, timeout = 45000) {
+  const { GiftedTechApi, GiftedApiKey } = conText;
+  
+  for (const endpoint of endpoints) {
+    try {
+      const apiUrl = `${GiftedTechApi}/api/download/${endpoint}?apikey=${GiftedApiKey}&url=${encodeURIComponent(query)}&stream=true`;
+      
+      const res = await axios.get(apiUrl, { timeout });
+      
+      if (res.data.success && res.data.result?.download_url) {
+        return {
+          success: true,
+          data: res.data,
+          endpoint: endpoint,
+          download_url: res.data.result.download_url
+        };
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+  
+  return { success: false, error: "All endpoints failed" };
+}
+
+const audioEndpoints = [
+  'yta',
+  'savetubemp3',
+  'ytmp3',
+  'dlmp3',
+  'savemp3'
+];
+
+const videoEndpoints = [
+  'ytv',
+  'savetubemp4',
+  'ytmp4',
+  'dlmp4',
+  'savemp4'
+];
+
+async function sendAudioOptions(Gifted, from, video, buffer, botName, botFooter, botPic) {
+  const dateNow = Date.now();
+  
+  await sendButtons(Gifted, from, {
+    title: `${botName} 𝐒𝐎𝐍𝐆 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃𝐄𝐑`,
+    text: `⿻ *Title:* ${video.title}\n⿻ *Duration:* ${video.timestamp}\n\n*Select download format:*`,
+    footer: botFooter,
+    image: video.thumbnail || botPic,
+    buttons: [
+      { id: `id1_${video.id}_${dateNow}`, text: "Audio 🎶" },
+      { id: `id2_${video.id}_${dateNow}`, text: "Voice Message 🔉" },
+      { id: `id3_${video.id}_${dateNow}`, text: "Audio Document 📄" },
+      {
+        name: "cta_url",
+        buttonParamsJson: JSON.stringify({
+          display_text: "Watch on Youtube",
+          url: video.url,
+        }),
+      },
+    ],
+  });
+}
+
+async function setupResponseHandler(Gifted, from, video, buffer, type) {
+  const dateNow = Date.now();
+  
+  const handleResponse = async (event) => {
+    const messageData = event.messages[0];
+    if (!messageData.message) return;
+
+    const templateButtonReply = messageData.message?.templateButtonReplyMessage;
+    if (!templateButtonReply) return;
+
+    const selectedButtonId = templateButtonReply.selectedId;
+
+    const isFromSameChat = messageData.key?.remoteJid === from;
+    if (!isFromSameChat) return;
+
+    await Gifted.react(messageData.key, "⬇️");
+
+    try {
+      if (!selectedButtonId.includes(`_${dateNow}`)) {
+        return;
+      }
+
+      const buttonType = selectedButtonId.split("_")[0];
+
+      switch (buttonType) {
+        case "id1":
+          await Gifted.sendMessage(
+            from,
+            {
+              audio: buffer,
+              mimetype: "audio/mpeg",
+            },
+            { quoted: messageData },
+          );
+          break;
+
+        case "id2":
+          const pttBuffer = await toPtt(buffer);
+          await Gifted.sendMessage(
+            from,
+            {
+              audio: pttBuffer,
+              mimetype: "audio/ogg; codecs=opus",
+              ptt: true,
+              waveform: [1000, 0, 1000, 0, 1000, 0, 1000],
+            },
+            { quoted: messageData },
+          );
+          break;
+
+        case "id3":
+          await Gifted.sendMessage(
+            from,
+            {
+              document: buffer,
+              mimetype: "audio/mpeg",
+              fileName: `${video.title}.mp3`.replace(/[^\w\s.-]/gi, ""),
+              caption: `${video.title}`,
+            },
+            { quoted: messageData },
+          );
+          break;
+
+        default:
+          await Gifted.sendMessage(from, { text: "Invalid option selected. Please use the buttons provided." }, { quoted: messageData });
+          return;
+      }
+
+      await Gifted.react(messageData.key, "✅");
+      Gifted.ev.off("messages.upsert", handleResponse);
+    } catch (error) {
+      console.error("Error sending media:", error);
+      await Gifted.react(messageData.key, "❌");
+      await Gifted.sendMessage(from, { text: "Failed to send media. Please try again." }, { quoted: messageData });
+      Gifted.ev.off("messages.upsert", handleResponse);
+    }
+  };
+
+  Gifted.ev.on("messages.upsert", handleResponse);
+
+  setTimeout(() => {
+    Gifted.ev.off("messages.upsert", handleResponse);
+  }, 120000);
+}
+
 gmd(
   {
     pattern: "play",
     aliases: ["ytmp3", "ytmp3doc", "audiodoc", "yta"],
     category: "downloader",
     react: "🎶",
-    description: "Download Video from Youtube",
+    description: "Download Audio from Youtube",
   },
   async (from, Gifted, conText) => {
     const {
@@ -174,128 +285,26 @@ gmd(
 
       const firstVideo = searchResponse.videos[0];
       const videoUrl = firstVideo.url;
-      const audioApi = `http://31.220.82.203:2029/api/yta?url=${encodeURIComponent(videoUrl)}&stream=true`; // can be deactivated anytime
-
-      const bufferRes = await gmdBuffer(audioApi);
-
+      
+      await react("🔍");
+      const endpointResult = await queryAPI(videoUrl, audioEndpoints, conText);
+      
+      if (!endpointResult.success) {
+        await react("❌");
+        return reply("All download services are currently unavailable. Please try again later.");
+      }
+      
+      const bufferRes = await gmdBuffer(endpointResult.download_url);
+      
       const sizeMB = bufferRes.length / (1024 * 1024);
       if (sizeMB > 20) {
         await reply("File is large, processing might take a while...");
       }
 
       const convertedBuffer = await formatAudio(bufferRes);
-
-      const dateNow = Date.now();
-
-      // Send buttons
-      await sendButtons(Gifted, from, {
-        title: `${botName} 𝐒𝐎𝐍𝐆 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃𝐄𝐑`,
-        text: `⿻ *Title:* ${firstVideo.title}\n⿻ *Duration:* ${firstVideo.timestamp}\n\n*Select download format:*`,
-        footer: botFooter,
-        image: firstVideo.thumbnail || botPic,
-        buttons: [
-          { id: `id1_${firstVideo.id}_${dateNow}`, text: "Audio 🎶" },
-          { id: `id2_${firstVideo.id}_${dateNow}`, text: "Voice Message 🔉" },
-          { id: `id3_${firstVideo.id}_${dateNow}`, text: "Audio Document 📄" },
-          {
-            name: "cta_url",
-            buttonParamsJson: JSON.stringify({
-              display_text: "Watch on Youtube",
-              url: firstVideo.url,
-            }),
-          },
-        ],
-      });
-
-      const handleResponse = async (event) => {
-        const messageData = event.messages[0];
-        if (!messageData.message) return;
-
-        // Check if it's a template button reply
-        const templateButtonReply =
-          messageData.message?.templateButtonReplyMessage;
-        if (!templateButtonReply) return;
-
-        const selectedButtonId = templateButtonReply.selectedId;
-        const selectedDisplayText = templateButtonReply.selectedDisplayText;
-
-        const isFromSameChat = messageData.key?.remoteJid === from;
-        if (!isFromSameChat) return;
-
-        await react("⬇️");
-
-        try {
-          if (!selectedButtonId.includes(`_${dateNow}`)) {
-            return;
-          }
-
-          const buttonType = selectedButtonId.split("_")[0];
-
-          switch (buttonType) {
-            case "id1":
-              await Gifted.sendMessage(
-                from,
-                {
-                  audio: convertedBuffer,
-                  mimetype: "audio/mpeg",
-                },
-                { quoted: messageData },
-              );
-              break;
-
-            case "id2":
-              const pttBuffer = await toPtt(convertedBuffer);
-              await Gifted.sendMessage(
-                from,
-                {
-                  audio: pttBuffer,
-                  mimetype: "audio/ogg; codecs=opus",
-                  ptt: true,
-                  waveform: [1000, 0, 1000, 0, 1000, 0, 1000],
-                },
-                { quoted: messageData },
-              );
-              break;
-
-            case "id3":
-              await Gifted.sendMessage(
-                from,
-                {
-                  document: convertedBuffer,
-                  mimetype: "audio/mpeg",
-                  fileName: `${firstVideo.title}.mp3`.replace(
-                    /[^\w\s.-]/gi,
-                    "",
-                  ),
-                  caption: `${firstVideo.title}`,
-                },
-                { quoted: messageData },
-              );
-              break;
-
-            default:
-              await reply(
-                "Invalid option selected. Please use the buttons provided.",
-                messageData,
-              );
-              return;
-          }
-
-          await react("✅");
-          Gifted.ev.off("messages.upsert", handleResponse);
-        } catch (error) {
-          console.error("Error sending media:", error);
-          await react("❌");
-          await reply("Failed to send media. Please try again.", messageData);
-          Gifted.ev.off("messages.upsert", handleResponse);
-        }
-      };
-
-      Gifted.ev.on("messages.upsert", handleResponse);
-
-      setTimeout(() => {
-        Gifted.ev.off("messages.upsert", handleResponse);
-      }, 120000);
+      await sendAudioOptions(Gifted, from, firstVideo, convertedBuffer, botName, botFooter, botPic);
+      await setupResponseHandler(Gifted, from, firstVideo, convertedBuffer, "audio");
+      
     } catch (error) {
       console.error("Error during download process:", error);
       await react("❌");
@@ -303,6 +312,100 @@ gmd(
     }
   },
 );
+
+async function sendVideoOptions(Gifted, from, video, botName, botFooter, botPic) {
+  const dateNow = Date.now();
+  
+  await sendButtons(Gifted, from, {
+    title: `${botName} 𝐕𝐈𝐃𝐄𝐎 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃𝐄𝐑`,
+    text: `⿻ *Title:* ${video.title}\n⿻ *Duration:* ${video.timestamp}\n\n*Select download format:*`,
+    footer: botFooter,
+    image: video.thumbnail || botPic,
+    buttons: [
+      { id: `vid1_${video.id}_${dateNow}`, text: "Video 🎥" },
+      { id: `vid2_${video.id}_${dateNow}`, text: "Video Document 📄" },
+      {
+        name: "cta_url",
+        buttonParamsJson: JSON.stringify({
+          display_text: "Watch on Youtube",
+          url: video.url,
+        }),
+      },
+    ],
+  });
+}
+
+async function setupVideoResponseHandler(Gifted, from, video, buffer) {
+  const dateNow = Date.now();
+  
+  const handleResponse = async (event) => {
+    const messageData = event.messages[0];
+    if (!messageData.message) return;
+
+    const templateButtonReply = messageData.message?.templateButtonReplyMessage;
+    if (!templateButtonReply) return;
+
+    const selectedButtonId = templateButtonReply.selectedId;
+
+    const isFromSameChat = messageData.key?.remoteJid === from;
+    if (!isFromSameChat) return;
+
+    await Gifted.react(messageData.key, "⬇️");
+
+    try {
+      if (!selectedButtonId.includes(`_${dateNow}`)) {
+        return;
+      }
+
+      const buttonType = selectedButtonId.split("_")[0];
+
+      switch (buttonType) {
+        case "vid1":
+          await Gifted.sendMessage(
+            from,
+            {
+              video: buffer,
+              mimetype: "video/mp4",
+              fileName: `${video.title}.mp4`.replace(/[^\w\s.-]/gi, ""),
+              caption: `🎥 ${video.title}`,
+            },
+            { quoted: messageData },
+          );
+          break;
+
+        case "vid2":
+          await Gifted.sendMessage(
+            from,
+            {
+              document: buffer,
+              mimetype: "video/mp4",
+              fileName: `${video.title}.mp4`.replace(/[^\w\s.-]/gi, ""),
+              caption: `📄 ${video.title}`,
+            },
+            { quoted: messageData },
+          );
+          break;
+
+        default:
+          await Gifted.sendMessage(from, { text: "Invalid option selected. Please use the buttons provided." }, { quoted: messageData });
+          return;
+      }
+      await Gifted.react(messageData.key, "✅");
+      Gifted.ev.off("messages.upsert", handleResponse);
+    } catch (error) {
+      console.error("Error sending media:", error);
+      await Gifted.react(messageData.key, "❌");
+      await Gifted.sendMessage(from, { text: "Failed to send media. Please try again." }, { quoted: messageData });
+      Gifted.ev.off("messages.upsert", handleResponse);
+    }
+  };
+
+  Gifted.ev.on("messages.upsert", handleResponse);
+
+  setTimeout(() => {
+    Gifted.ev.off("messages.upsert", handleResponse);
+  }, 120000);
+}
 
 gmd(
   {
@@ -345,115 +448,26 @@ gmd(
 
       const firstVideo = searchResponse.videos[0];
       const videoUrl = firstVideo.url;
-
-      const videoApi = `http://31.220.82.203:2029/api/ytv?url=${encodeURIComponent(videoUrl)}&stream=true`; // can be deactivated anytime
-
-      const response = await gmdBuffer(videoApi);
-
+      
+      await react("🔍");
+      const endpointResult = await queryAPI(videoUrl, videoEndpoints, conText);
+      
+      if (!endpointResult.success) {
+        await react("❌");
+        return reply("All download services are currently unavailable. Please try again later.");
+      }
+      
+      const response = await gmdBuffer(endpointResult.download_url);
+      
       const sizeMB = response.length / (1024 * 1024);
       if (sizeMB > 20) {
         await reply("File is large, processing might take a while...");
       }
 
-      const convertedBuffer = await formatVideo(response);
-
-      const dateNow = Date.now();
-
-      await sendButtons(Gifted, from, {
-        title: `${botName} 𝐕𝐈𝐃𝐄𝐎 𝐃𝐎𝐖𝐍𝐋𝐎𝐀𝐃𝐄𝐑`,
-        text: `⿻ *Title:* ${firstVideo.title}\n⿻ *Duration:* ${firstVideo.timestamp}\n\n*Select download format:*`,
-        footer: botFooter,
-        image: firstVideo.thumbnail || botPic,
-        buttons: [
-          { id: `vid1_${firstVideo.id}_${dateNow}`, text: "Video 🎥" },
-          { id: `vid2_${firstVideo.id}_${dateNow}`, text: "Video Document 📄" },
-          {
-            name: "cta_url",
-            buttonParamsJson: JSON.stringify({
-              display_text: "Watch on Youtube",
-              url: firstVideo.url,
-            }),
-          },
-        ],
-      });
-
-      const handleResponse = async (event) => {
-        const messageData = event.messages[0];
-        if (!messageData.message) return;
-
-        const templateButtonReply =
-          messageData.message?.templateButtonReplyMessage;
-        if (!templateButtonReply) return;
-
-        const selectedButtonId = templateButtonReply.selectedId;
-
-        const isFromSameChat = messageData.key?.remoteJid === from;
-        if (!isFromSameChat) return;
-
-        await react("⬇️");
-
-        try {
-          if (!selectedButtonId.includes(`_${dateNow}`)) {
-            return;
-          }
-
-          const buttonType = selectedButtonId.split("_")[0];
-
-          switch (buttonType) {
-            case "vid1":
-              await Gifted.sendMessage(
-                from,
-                {
-                  video: convertedBuffer,
-                  mimetype: "video/mp4",
-                  fileName: `${firstVideo.title}.mp4`.replace(
-                    /[^\w\s.-]/gi,
-                    "",
-                  ),
-                  caption: `🎥 ${firstVideo.title}`,
-                },
-                { quoted: messageData },
-              );
-              break;
-
-            case "vid2":
-              await Gifted.sendMessage(
-                from,
-                {
-                  document: convertedBuffer,
-                  mimetype: "video/mp4",
-                  fileName: `${firstVideo.title}.mp4`.replace(
-                    /[^\w\s.-]/gi,
-                    "",
-                  ),
-                  caption: `📄 ${firstVideo.title}`,
-                },
-                { quoted: messageData },
-              );
-              break;
-
-            default:
-              await reply(
-                "Invalid option selected. Please use the buttons provided.",
-                messageData,
-              );
-              return;
-          }
-          await react("✅");
-          Gifted.ev.off("messages.upsert", handleResponse);
-        } catch (error) {
-          console.error("Error sending media:", error);
-          await react("❌");
-          await reply("Failed to send media. Please try again.", messageData);
-          Gifted.ev.off("messages.upsert", handleResponse);
-        }
-      };
-
-      Gifted.ev.on("messages.upsert", handleResponse);
-
-      setTimeout(() => {
-        Gifted.ev.off("messages.upsert", handleResponse);
-      }, 120000);
+      const convertedBuffer = response;
+      await sendVideoOptions(Gifted, from, firstVideo, botName, botFooter, botPic);
+      await setupVideoResponseHandler(Gifted, from, firstVideo, convertedBuffer);
+      
     } catch (error) {
       console.error("Error during download process:", error);
       await react("❌");
