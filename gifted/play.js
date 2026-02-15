@@ -223,7 +223,7 @@ gmd(
         
         if (!isFromSameChat || !selectedButtonId.includes(dateNow.toString())) return;
 
-        await Gifted.react(messageData.key, "⬇️");
+        await react("⬇️");
 
         try {
           if (selectedButtonId.startsWith('audio_')) {
@@ -264,11 +264,11 @@ gmd(
             return;
           }
 
-          await Gifted.react(messageData.key, "✅");
+          await react("✅");
           Gifted.ev.off("messages.upsert", handleResponse);
         } catch (error) {
           console.error("Error sending media:", error);
-          await Gifted.react(messageData.key, "❌");
+          await react("❌");
           await Gifted.sendMessage(from, { text: "Failed to send media. Please try again." }, { quoted: messageData });
           Gifted.ev.off("messages.upsert", handleResponse);
         }
@@ -370,7 +370,7 @@ gmd(
         
         if (!isFromSameChat || !selectedButtonId.includes(dateNow.toString())) return;
 
-        await Gifted.react(messageData.key, "⬇️");
+        await react("⬇️");
 
         try {
           if (selectedButtonId.startsWith('vid_')) {
@@ -401,11 +401,11 @@ gmd(
             return;
           }
 
-          await Gifted.react(messageData.key, "✅");
+          await react("✅");
           Gifted.ev.off("messages.upsert", handleResponse);
         } catch (error) {
           console.error("Error sending media:", error);
-          await Gifted.react(messageData.key, "❌");
+          await react("❌");
           await Gifted.sendMessage(from, { text: "Failed to send media. Please try again." }, { quoted: messageData });
           Gifted.ev.off("messages.upsert", handleResponse);
         }
