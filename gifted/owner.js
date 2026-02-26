@@ -118,9 +118,9 @@ gmd(
 
 gmd(
   {
-    pattern: "shell",
+    pattern: "$",
+    on: "body",
     react: "👑",
-    aliases: ["exec", "terminal", "sh", "ex"],
     category: "owner",
     description: "Run shell commands",
   },
